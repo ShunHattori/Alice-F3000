@@ -2,26 +2,106 @@
 #include <avr/wdt.h>
 #include <SPI.h>
 #include "SoftwareSerial.h"
+#include "Adafruit_NeoPixel.h"
+
+/**************************************************************/
+/*                        TODO - features
+*  SERTIAL - CONTROL(PC)
+*  Protocol - receive logic
+*  WS2812B LED CONTROL
+*  WAITMS - class logic
+*/
+/**************************************************************/
+
+struct serial_comfig
+{
+  const uint16_t SERIAL_BAUD = 57600;
+  const uint8_t RX_PIN = 2;
+} SERIAL_CONFIG;
+
+struct pin_assign
+{
+  const uint8_t SERIAL_RX = SERIAL_CONFIG.RX_PIN; //2
+  const uint8_t SOFTWARE_RESET = 3;
+  const uint8_t SPI_MOSI = MOSI; //11
+  const uint8_t SPI_MISO = MISO; //12
+  const uint8_t SPI_SCK = SCK;   //13
+  const uint8_t SPI_SS = 4;
+  const uint8_t _74HC595_LATCH = 6;
+  const uint8_t WS2812B = 8;
+  const uint8_t PWM_CW = 9;
+  const uint8_t PWM_CCW = 10;
+  const uint8_t DIP_1 = A0;
+  const uint8_t DIP_2 = A1;
+  const uint8_t DIP_3 = A2;
+  const uint8_t DIP_4 = A3;
+  const uint8_t HIGH_LOW_IN_1 = 2;
+  const uint8_t HIGH_LOW_IN_2 = 3;
+  const uint8_t INPUT_MODE_DETECT = 5; //UART入力 or (HIGH/LOW&PWM直)入力を検出
+} PIN_ASSIGN;
+
+enum
+{
+  cw,
+  ccw,
+};
+
+struct color_32bit
+{
+  uint32_t RED = 0xFF0000;
+  uint32_t GREEN = 0x00FF00;
+  uint32_t BLUE = 0x0000FF;
+  uint32_t ORANGE = 0xFF8000;
+  uint32_t MAGENTA = 0xFF00FF;
+  uint32_t SKYBLUE = 0x00FFFF;
+} COLOR_32BIT;
+
+struct data
+{
+  const uint8_t MAX_PWM = 250;
+  int16_t pwm = 0;
+  uint8_t seven_segment_high_byte = 0;
+  uint8_t seven_segment_low_byte = 0;
+  uint8_t motor_driver_id = 0;
+  bool running_mode = 0;
+  bool self_debug_direction = cw;
+  bool uart_mode = 0;
+  uint32_t pixel_color = 0;
+  uint8_t seven_segment_pattern[10] = {
+      {0b11111100}, //0
+      {0b01100000}, //1
+      {0b11011010}, //2
+      {0b11110010}, //3
+      {0b01100110}, //4
+      {0b10110110}, //5
+      {0b10111110}, //6
+      {0b11100000}, //7
+      {0b11111110}, //8
+      {0b11100110}, //9
+  };
+} data;
 
 class Protocol
 {
 private:
-  SoftwareSerial &port;
+  SoftwareSerial *uart;
   uint8_t id;
   void parse();
 
 public:
   Protocol() {}
   virtual ~Protocol() {}
-  void initialize(SoftwareSerial &);
+  void initialize();
   void update_id(uint8_t);
   int get_pwm();
   int receive();
 };
 
-void Protocol::initialize(SoftwareSerial &port)
+void Protocol::initialize()
 {
-  this->port = port;
+  uart = new SoftwareSerial(PIN_ASSIGN.SERIAL_RX, 0);
+  uart->begin(SERIAL_CONFIG.SERIAL_BAUD);
+  uart->listen();
 }
 
 void Protocol::update_id(uint8_t id)
@@ -31,9 +111,15 @@ void Protocol::update_id(uint8_t id)
 
 int Protocol::receive()
 {
-  if (!(port.available() > 2))
+  if (!(uart->available() > 2))
     return 0;
-
+  if (uart->read() != 0xff)
+    return 1;
+  if (uart->read() != data.motor_driver_id)
+    return 2;
+  data.pwm = uart->read();
+  if (uart->read() != 0)
+    data.pwm = uart->read();
   return 0;
 }
 
@@ -87,7 +173,7 @@ void AntiChattering::update()
 
 void AntiChattering::process()
 {
-  if (sampling_period > (millis() - sampled_time))
+  if (uint16_t(sampling_period) > (millis() - sampled_time))
     return;
   if (is_pin_analog)
   {
@@ -156,52 +242,6 @@ inline bool Observer<T>::rise(T param)
   return flag;
 }
 
-struct serial_comfig
-{
-  const uint16_t SERIAL_BAUD = 57600;
-  const uint8_t RX_PIN = 2;
-} SERIAL_CONFIG;
-
-struct pin_assign
-{
-  const uint8_t PWM_CW = 9;
-  const uint8_t PWM_CCW = 10;
-  const uint8_t SERIAL_RX = SERIAL_CONFIG.RX_PIN; //2
-  const uint8_t SOFTWARE_RESET = 3;
-  const uint8_t SPI_MOSI = MOSI; //11
-  const uint8_t SPI_SCK = SCK;   //13
-  const uint8_t SPI_SS = 4;
-  const uint8_t DIP_1 = 5;
-  const uint8_t DIP_2 = 6;
-  const uint8_t DIP_3 = 7;
-  const uint8_t DIP_4 = 8;
-  const uint8_t HIGH_LOW_IN_1 = 2;
-  const uint8_t HIGH_LOW_IN_2 = 3;
-  const uint8_t INPUT_MODE_DETECT = A0; //UART入力 or (HIGH/LOW&PWM直)入力を検出
-  // const uint8_t INPUT_MODE_FLIP = A0;  //ハードウェアでの実装
-  // const uint8_t SELF_DEBUG_SLIDE = A1;
-  // const uint8_t SELF_DEBUG_TACT = A2;
-} PIN_ASSIGN;
-
-enum
-{
-  cw,
-  ccw,
-};
-
-struct data
-{
-  const uint8_t MAX_PWM = 250;
-  int16_t pwm = 0;
-  uint8_t seven_segment_high_byte = 0;
-  uint8_t seven_segment_low_byte = 0;
-  uint8_t motor_driver_id = 0;
-  bool running_mode = 0;
-  bool self_debug_direction = cw;
-  bool uart_mode = 0;
-} data;
-
-SoftwareSerial uart(PIN_ASSIGN.SERIAL_RX, 0);
 Protocol protocol;
 AntiChattering DIP_1(PIN_ASSIGN.DIP_1);
 AntiChattering DIP_2(PIN_ASSIGN.DIP_2);
@@ -211,11 +251,8 @@ AntiChattering HIGH_LOW_IN_1(PIN_ASSIGN.HIGH_LOW_IN_1);
 AntiChattering HIGH_LOW_IN_2(PIN_ASSIGN.HIGH_LOW_IN_2);
 AntiChattering SOFTWARE_RESET(PIN_ASSIGN.SOFTWARE_RESET);
 AntiChattering INPUT_MODE_DETECT(PIN_ASSIGN.INPUT_MODE_DETECT);
-// AntiChattering INPUT_MODE_FLIP(PIN_ASSIGN.INPUT_MODE_FLIP);
-// AntiChattering SELF_DEBUG_SLIDE(PIN_ASSIGN.SELF_DEBUG_SLIDE);
-// AntiChattering SELF_DEBUG_TACT(PIN_ASSIGN.SELF_DEBUG_TACT);
-Observer<uint8_t>
-    obs_DIP;
+Observer<uint8_t> obs_DIP;
+Adafruit_NeoPixel WS2812B(1, PIN_ASSIGN.WS2812B, NEO_GRB + NEO_KHZ800);
 
 int waitMs(uint16_t);
 void update_motor_driver_id();
@@ -224,38 +261,90 @@ void update_output_pwm();
 void initialize_switches();
 void update_switches();
 void wdt_reboot();
-
+void setPwmFrequencyUNO(int, int);
+void apply_WS2812B();
+void update_WS2818B();
 uint8_t get_DIP_states();
+
+SPISettings SPI_LOWSPEED_SETTING = SPISettings(125000, MSBFIRST, SPI_MODE0);   //125kHz
+SPISettings SPI_HIGHSPEED_SETTING = SPISettings(4000000, MSBFIRST, SPI_MODE0); //4.0MHz
+void signal()
+{
+  analogWrite(PIN_ASSIGN.PWM_CW, 128);
+  analogWrite(PIN_ASSIGN.PWM_CCW, 128);
+
+  while (1)
+  {
+    WS2812B.setPixelColor(0, WS2812B.Color(0xff, 0xff, 0x00));
+    WS2812B.show();
+    update_switches();
+    Serial.print(DIP_1.getState());
+    Serial.print('\t');
+    Serial.print(DIP_2.getState());
+    Serial.print('\t');
+    Serial.print(DIP_3.getState());
+    Serial.print('\t');
+    Serial.print(DIP_4.getState());
+    Serial.print('\t');
+    Serial.print(HIGH_LOW_IN_1.getState());
+    Serial.print('\t');
+    Serial.print(HIGH_LOW_IN_2.getState());
+    Serial.print('\t');
+    Serial.print(SOFTWARE_RESET.getState());
+    Serial.print('\t');
+    Serial.print(INPUT_MODE_DETECT.getState());
+    Serial.print("\r\n");
+
+    static unsigned long long times = micros();
+    if (micros() - times < 500)
+      continue;
+    times = micros();
+
+    SPI.beginTransaction(SPI_LOWSPEED_SETTING);
+    digitalWrite(PIN_ASSIGN.SPI_SS, LOW); // (4)
+    SPI.transfer(0b10101010);             // (5)
+    //SPI.transfer16(0b1010101010010010);
+    digitalWrite(PIN_ASSIGN.SPI_SS, HIGH); // (6)
+    SPI.endTransaction();
+  }
+}
 
 void setup()
 {
   Serial.begin(115200);
+  Serial.println("BOOT");
+  WS2812B.begin();
+  WS2812B.clear();
+  WS2812B.setBrightness(100);
+  WS2812B.setPixelColor(0, WS2812B.Color(0xff, 0xff, 0xff));
+  WS2812B.show();
   SPI.begin();
-  SPI.setBitOrder(MSBFIRST);
-  SPI.setClockDivider(SPI_CLOCK_DIV2);
-  SPI.setDataMode(SPI_MODE0);
-  uart.begin(SERIAL_CONFIG.SERIAL_BAUD);
-  uart.listen();
-  protocol.initialize(uart);
+  pinMode(PIN_ASSIGN.SPI_SS, OUTPUT);
+  protocol.initialize();
   initialize_switches();
+  setPwmFrequencyUNO(PIN_ASSIGN.PWM_CW, 1);
+  setPwmFrequencyUNO(PIN_ASSIGN.PWM_CCW, 1);
+  // signal();
 }
 
 void loop()
 {
   update_switches();
-  if (waitMs(1000))
+  update_WS2818B();
+  apply_WS2812B();
+  if (waitMs(50))
   {
-    if (obs_DIP.isChanged(get_DIP_states()))
+    data.motor_driver_id = get_DIP_states();
+    if (obs_DIP.isChanged(data.motor_driver_id)) //test point2
     {
       update_motor_driver_id();
       update_seven_segment();
-      protocol.update_id(data.motor_driver_id);
     }
   }
 
   //UART通信モードかHIGH/LOW入力モードかの状態を取得
   data.uart_mode = INPUT_MODE_DETECT.getState();
-
+  Serial.println(data.uart_mode);
   if (data.uart_mode) //UART通信入力モードのとき
   {
     protocol.receive();
@@ -284,11 +373,24 @@ void update_motor_driver_id()
 
 void update_seven_segment()
 {
+  data.seven_segment_high_byte = uint8_t(data.motor_driver_id / 10);
+  data.seven_segment_low_byte = uint8_t(data.motor_driver_id % 10);
+  Serial.println(data.seven_segment_high_byte);
+  Serial.println(data.seven_segment_low_byte);
   //SPI出力
+  SPI.beginTransaction(SPI_HIGHSPEED_SETTING);
+  digitalWrite(PIN_ASSIGN.SPI_SS, LOW);
+  digitalWrite(PIN_ASSIGN._74HC595_LATCH, LOW);
+  SPI.transfer(data.seven_segment_pattern[data.seven_segment_high_byte]);
+  SPI.transfer(data.seven_segment_pattern[data.seven_segment_low_byte]);
+  digitalWrite(PIN_ASSIGN.SPI_SS, HIGH);
+  digitalWrite(PIN_ASSIGN._74HC595_LATCH, HIGH);
+  SPI.endTransaction();
 }
 
 uint8_t get_DIP_states()
 {
+  return 15; //test point1
   uint8_t state = (DIP_1.getState() >> 0) |
                   (DIP_2.getState() >> 1) |
                   (DIP_3.getState() >> 2) |
@@ -351,7 +453,49 @@ int waitMs(uint16_t milliseconds)
 void wdt_reboot()
 {
   wdt_enable(WDTO_15MS);
+  Serial.println("@DETECT RESET SIGNAL. REBOOTING...");
   while (1)
   {
+  }
+}
+
+void setPwmFrequencyUNO(int pin, int divisor)
+{
+  if (pin == 5 || pin == 6 || pin == 9 || pin == 10)
+  {
+    if (pin == 5 || pin == 6)
+    {
+      TCCR0B = (TCCR0B & (0b11111000 | divisor));
+    }
+    else
+    {
+      TCCR1B = (TCCR1B & (0b11111000 | divisor));
+    }
+  }
+  else if (pin == 3 || pin == 11)
+  {
+    TCCR2B = (TCCR2B & (0b11111000 | divisor));
+  }
+}
+
+void apply_WS2812B()
+{
+  static uint32_t prevColor = 0;
+  if (prevColor == data.pixel_color)
+    return;
+  WS2812B.setPixelColor(0, data.pixel_color);
+  WS2812B.show();
+  prevColor = data.pixel_color;
+}
+
+void update_WS2818B()
+{
+  if (INPUT_MODE_DETECT.getState())
+  {
+    data.pixel_color = COLOR_32BIT.SKYBLUE;
+  }
+  else
+  {
+    data.pixel_color = COLOR_32BIT.ORANGE;
   }
 }
