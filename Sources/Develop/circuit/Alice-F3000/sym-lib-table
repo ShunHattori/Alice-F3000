@@ -1,3 +1,4 @@
 (sym_lib_table
   (lib (name MotorDriver-rescue)(type Legacy)(uri ${KIPRJMOD}/MotorDriver-rescue.lib)(options "")(descr ""))
+  (lib (name Alice-F3000-rescue)(type Legacy)(uri ${KIPRJMOD}/Alice-F3000-rescue.lib)(options "")(descr ""))
 )
