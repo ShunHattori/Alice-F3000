@@ -6,10 +6,10 @@
 
 /**************************************************************/
 /*                        TODO - features
-*  SERTIAL - CONTROL(PC) DONE
-*  Protocol - receive logic
-*  WS2812B LED CONTROL  DONE
-*  WAITMS - class logic
+*  [x] SERTIAL - CONTROL(PC)
+*  [ ] Protocol - receive logic
+*  [x] WS2812B LED CONTROL
+*  [ ] WAITMS - class logic
 */
 /**************************************************************/
 
@@ -35,8 +35,8 @@ struct pin_assign
   const uint8_t DIP_2 = A1;
   const uint8_t DIP_3 = A2;
   const uint8_t DIP_4 = A3;
-  const uint8_t HIGH_LOW_IN_1 = 2;
-  const uint8_t HIGH_LOW_IN_2 = 3;
+  const uint8_t HIGH_LOW_IN_1 = A5;
+  const uint8_t HIGH_LOW_IN_2 = A4;
   const uint8_t INPUT_MODE_DETECT = 5; //UART入力 or (HIGH/LOW&PWM直)入力を検出
 } PIN_ASSIGN;
 
@@ -366,7 +366,21 @@ void signal()
 
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(256000);
+  uint8_t timer = digitalPinToTimer(2);
+  uint8_t bit = digitalPinToBitMask(2);
+  uint8_t port = digitalPinToPort(2);
+  volatile uint8_t *out;
+  out = portOutputRegister(port);
+  Serial.println(timer, BIN);
+  Serial.println(bit, BIN);
+  Serial.println(port, BIN);
+  Serial.println(*out, BIN);
+  while (1)
+  {
+  }
+
+  Serial.begin(500000);
   Serial.println("BOOT");
   WS2812B.begin();
   WS2812B.clear();
@@ -381,7 +395,6 @@ void setup()
   setPwmFrequencyUNO(PIN_ASSIGN.PWM_CCW, 1);
   // signal();
 }
-
 void loop()
 {
   hardware_serial_debug();
